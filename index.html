@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Self-Service Print Kiosk</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .kiosk-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 380px; margin-bottom: 20px; box-sizing: border-box; }
+        .control-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; color: #333; }
+        input[type="range"], input[type="file"], input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+        
+        /* A4 Canvas Simulation */
+        #a4-canvas { width: 330px; height: 466px; background: white; border: 2px dashed #007bff; position: relative; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.15); border-radius: 4px; }
+        #user-image { position: absolute; cursor: move; transform-origin: top left; max-width: none; }
+        
+        .btn { background: #007bff; color: white; border: none; padding: 14px; width: 100%; border-radius: 6px; font-size: 16px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        .btn-success { background: #28a745; }
+        .hint { font-size: 13px; color: #666; margin-top: 5px; background: #e9ecef; padding: 8px; border-radius: 4px; }
+        
+        /* Payment Screen (Hidden by Default) */
+        #payment-section { display: none; text-align: center; }
+        .qr-placeholder { background: #eee; border: 2px dashed #999; padding: 30px; margin: 15px 0; border-radius: 8px; font-weight: bold; }
+        .qr-image { width: 200px; height: 200px; margin: 15px auto; display: block; }
+    </style>
+</head>
+<body>
+
+    <!-- STEP 1: CROPPING & POSITIONING WORKSPACE -->
+    <div class="kiosk-card" id="workspace-section">
+        <h3 style="margin-top:0; color:#007bff;">Step 1: Adjust Your Photo</h3>
+        
+        <div class="control-group">
+            <label>Choose Photo:</label>
+            <input type="file" id="imageLoader" accept="image/*">
+        </div>
+        
+        <div class="control-group">
+            <label>Resize Photo (Scale):</label>
+            <input type="range" id="sizeSlider" min="10" max="250" value="60">
+        </div>
+        
+        <div class="hint">
+            👉 <b>Move Photo:</b> Touch and drag the photo inside the blue box below to place it exactly where you want it printed on the A4 page.
+        </div>
+        
+        <button class="btn" id="nextToPayBtn">Next: Proceed to Payment ➔</button>
+    </div>
+
+    <!-- THE INTERACTIVE A4 LIVE PREVIEW -->
+    <div id="a4-canvas" style="margin-bottom: 20px;">
+        <img id="user-image" src="" style="display:none;" alt="Preview">
+    </div>
+
+    <!-- STEP 2: PAYMENT SCREEN (Appears after clicking Next) -->
+    <div class="kiosk-card" id="payment-section">
+        <h3 style="margin-top:0; color:#28a745;">Step 2: Scan & Pay</h3>
+        <p style="font-size:14px; color:#555;">Please pay the printing amount to automatically release your print job.</p>
+        
+        <!-- REPLACE THE URL BELOW WITH your actual GPay/PhonePe business QR code image path -->
+        <!-- For testing, it shows a placeholder block -->
+        <div id="qr-container">
+            <div class="qr-placeholder">📥 [Replace with your GPay/PhonePe QR Code Image]</div>
+            <!-- Once you have your QR image saved in your GitHub folder, uncomment the line below: -->
+            <!-- <img src="my-store-qr.png" class="qr-image" alt="UPI QR"> -->
+        </div>
+
+        <div class="control-group" style="text-align: left;">
+            <label>Enter Payment UPI Ref No. / Name:</label>
+            <input type="text" id="paymentRef" placeholder="e.g., John / Ref: 4123...">
+        </div>
+
+        <button class="btn btn-success" id="finalPrintBtn">✔ Confirm Payment & Print Now</button>
+        <button class="btn" id="backBtn" style="background:#6c757d; margin-top:5px;">➔ Go Back & Re-adjust</button>
+    </div>
+
+    <script>
+        const imageLoader = document.getElementById('imageLoader');
+        const img = document.getElementById('user-image');
+        const sizeSlider = document.getElementById('sizeSlider');
+        const canvas = document.getElementById('a4-canvas');
+        
+        const workspaceSection = document.getElementById('workspace-section');
+        const paymentSection = document.getElementById('payment-section');
+        const nextToPayBtn = document.getElementById('nextToPayBtn');
+        const backBtn = document.getElementById('backBtn');
+        const finalPrintBtn = document.getElementById('finalPrintBtn');
+        const paymentRef = document.getElementById('paymentRef');
+
+        let isDragging = false;
+        let startX, startY, posX = 0, posY = 0;
+
+        // Image loader layout logic
+        imageLoader.addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = function(event){
+                img.src = event.target.result;
+                img.style.display = 'block';
+                posX = 20; posY = 20; // Default padding inside canvas
+                img.style.left = posX + 'px';
+                img.style.top = posY + 'px';
+                img.style.width = '180px';
+                sizeSlider.value = 60;
+            }
+            reader.readAsDataURL(e.target.files);
+        });
+
+        // Interactive Slider Scaling
+        sizeSlider.addEventListener('input', (e) => {
+            if(img.src) { img.style.width = (e.target.value * 3) + 'px'; }
+        });
+
+        // Touch & Drag Tracking Functions
+        canvas.addEventListener('mousedown', dragStart);
+        window.addEventListener('mouseup', dragEnd);
+        window.addEventListener('mousemove', drag);
+        canvas.addEventListener('touchstart', dragStart, {passive: false});
+        window.addEventListener('touchend', dragEnd);
+        window.addEventListener('touchmove', drag, {passive: false});
+
+        function dragStart(e) {
+            if (!img.src) return;
+            isDragging = true;
+            startX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX) - posX;
+            startY = (e.type === 'touchstart' ? e.touches[0].clientY : e.clientY) - posY;
+        }
+        function dragEnd() { isDragging = false; }
+        function drag(e) {
+            if (!isDragging || !img.src) return;
+            e.preventDefault();
+            posX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX) - startX;
+            posY = (e.type === 'touchmove' ? e.touches[0].clientY : e.clientY) - startY;
+            img.style.left = posX + 'px';
+            img.style.top = posY + 'px';
+        }
+
+        // NAVIGATION FLOW
+        nextToPayBtn.addEventListener('click', () => {
+            if(!img.src) { 
+                alert('Please upload a photo first!'); 
+                return; 
+            }
+            // Hide workspace menu, reveal payment menu
+            workspaceSection.style.display = 'none';
+            paymentSection.style.display = 'block';
+        });
+
+        backBtn.addEventListener('click', () => {
+            // Return to adjustments
+            workspaceSection.style.display = 'block';
+            paymentSection.style.display = 'none';
+        });
+
+        finalPrintBtn.addEventListener('click', () => {
+            if(paymentRef.value.trim() === "") {
+                alert('Please enter your name or UPI Reference number to confirm payment!');
+                return;
+            }
+            
+            alert('Processing your custom layout layout... Your print job has been sent to the Epson L3251!');
+            
+            // This is where your code automatically sends the flattened image 
+            // data straight into your local C:\EpsonKiosk\A4_Jobs folder.
+        });
+    </script>
+</body>
+</html>
